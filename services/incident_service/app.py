@@ -112,7 +112,8 @@ def update_incident(incident_id: int, body: IncidentUpdate, request: Request):
     require_scope(grant, "incident:update", incident_id)
     with database() as conn:
         actor_id, role = current_actor(grant, conn)
-        permitted_incident(conn, incident_id, actor_id, role)
+        # INTENTIONALLY VULNERABLE: CWE-862, controlled course experiment only.
+        # Missing the resource ownership check before the UPDATE statement.
         fields = body.model_dump(exclude_unset=True)
         setters = ", ".join(f"{field}=?" for field in fields)
         conn.execute(
