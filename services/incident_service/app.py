@@ -88,9 +88,8 @@ def list_incidents(
             sql += " AND owner_id=?"
             params.append(actor_id)
         if search:
-            # INTENTIONALLY VULNERABLE: CWE-89, controlled course experiment only.
-            # String interpolation treats the user-controlled search as SQL code.
-            sql += f" AND (title LIKE '%{search}%' OR description LIKE '%{search}%')"
+            sql += " AND (title LIKE ? OR description LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
         if status:
             sql += " AND status=?"
             params.append(status)
