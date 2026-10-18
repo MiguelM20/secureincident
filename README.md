@@ -1,8 +1,25 @@
 # SecureIncident - Software Security Assignment I
 
-Status: **Phase 2 in progress.** Incident Service implemented and covered by isolated security tests. Gateway, Report Service, formatter dependency, Docker Compose, and Jenkins are still pending. The initial SSDLC design remains the first Git commit.
+Status: **Phase 2: all three services and the standalone formatter implemented.**
+Vulnerability experiments, full Docker Compose integration, Jenkins security
+pipeline, and final report are still pending.
 
-This pack records the agreed baseline for the Python Security Incident Management System before implementation. Read in order:
+The first Git commit must remain the initial SSDLC plan and security design.
+Maintain separate commits for each tested implementation increment.
+
+## Services
+
+- `services/gateway/`: Public FastAPI endpoint, verifies users, issues signed user
+  tokens and short-lived delegated grants.
+- `services/incident_service/`: Private SQLite owner, verifies every delegated
+  grant and checks incident ownership before resource operations.
+- `services/report_service/`: Private report generator, checks report job grant
+  and matched per-incident read/write grants, reads authorized incident data,
+  formats content through installed helper package, and persists through the
+  Incident Service. It never receives a signing private key or database file.
+- `packages/incident_formatter/`: Separate, buildable, installable Python helper.
+
+## Development docs
 
 1. `docs/00-getting-started.md`
 2. `docs/01-requirements.md`
@@ -10,20 +27,40 @@ This pack records the agreed baseline for the Python Security Incident Managemen
 4. `docs/03-threat-model.md`
 5. `docs/04-vulnerability-experiments.md`
 6. `docs/05-initial-ssdlc-plan.md`
-7. `diagrams/data-flow.mmd` and `diagrams/report-sequence.mmd`
+7. `docs/06-report-service-implementation.md`
+8. `diagrams/data-flow.mmd` and `diagrams/report-sequence.mmd`
 
-## Key decisions
+## Local setup and verification
 
-- Python 3.12 + FastAPI for three independently running processes: Gateway, Incident Service, Report Service.
-- SQLite private to Incident Service; Report Service has no direct database access.
-- Three seeded accounts: Alice, Bob (analyst), and Admin (administrator).
-- Signed user JWT for Gateway, and separate short-lived audience- and incident-scoped delegated tokens for internal calls.
-- Own installable Python helper package (`incident_formatter`) consumed by Report Service.
-- Four controlled experiments: SQL injection (CWE-89), missing authorization on update (CWE-862), path traversal (CWE-22), and a composition-origin confused-deputy leak in report generation.
-- Final mainline must pass positive and negative authorization tests after remediation.
+See `services/report_service/README.md` for three-terminal startup commands.
 
-## Important submission order
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements-report.txt
+python -m pytest tests/test_incident_service.py tests/test_gateway.py tests/test_report_service.py -v
+```
 
-The initial SSDLC plan and architecture **are the first commit** of this repository, preceding application code. Do not reinitialize Git. For extraction, history checks, and publishing instructions, see `docs/00-getting-started.md`.
+After the three services are running, test the whole workflow without pasting
+JWTs into the terminal:
 
-The first service and its tests are documented in `services/incident_service/README.md`. Preserve evidence of vulnerable and corrected states with separate commits/tags. This repository is not yet a submission-ready implementation.
+```bash
+python scripts/verify_report_workflow.py
+```
+
+The script prompts for Alice's local synthetic password, then tests allowed
+report creation and retrieval, denied access to Bob's incident, and unsafe
+filename rejection.
+
+## Four planned vulnerability experiments
+
+1. CWE-89 SQL injection (synthetic incident search).
+2. CWE-862 missing authorization (direct incident update).
+3. CWE-22 path traversal (report output filename handling).
+4. Cross-service confused-deputy disclosure (report generator using too-broad
+   authority, despite a direct ownership check).
+
+The ordinary application path intentionally includes mitigations. Preserve any
+future vulnerable experimental states in isolated local-only commits/tags, then
+confirm the final branch passes the regression tests.
+
+Do not commit `runtime/`, signing keys, database files, passwords, or bearer tokens.

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=75,<83", "wheel>=0.45,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secureincident-formatter"
+version = "0.1.0"
+description = "Local, separately installed synthetic incident report formatter"
+requires-python = ">=3.12"
+authors = [{name = "SecureIncident course project"}]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

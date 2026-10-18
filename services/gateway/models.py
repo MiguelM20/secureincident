@@ -38,3 +38,9 @@ class IncidentUpdate(StrictModel):
 
 class IncidentAssign(StrictModel):
     owner_id: int = Field(ge=1)
+
+
+class ReportGenerate(StrictModel):
+    # Optional export filename for the controlled CWE-22 experiment.
+    # The service only accepts safe .txt basenames, never arbitrary paths.
+    filename: str | None = Field(default=None, min_length=5, max_length=84)

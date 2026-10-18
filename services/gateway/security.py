@@ -17,6 +17,7 @@ from fastapi import HTTPException, Request
 ISSUER = "secureincident"
 GATEWAY_AUDIENCE = "gateway"
 INCIDENT_AUDIENCE = "incident-service"
+REPORT_AUDIENCE = "report-service"
 USER_TTL_SECONDS = 1800
 GRANT_TTL_SECONDS = 120
 
@@ -40,7 +41,8 @@ def check_keys() -> None:
 
 
 def _claims(*, sub: str, role: str, audience: str, ttl_seconds: int,
-            scope: str | None = None, incident_id: int | None = None) -> dict[str, Any]:
+            scope: str | None = None, incident_id: int | None = None,
+            request_id: str | None = None) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     claims: dict[str, Any] = {
         "iss": ISSUER,
@@ -56,6 +58,8 @@ def _claims(*, sub: str, role: str, audience: str, ttl_seconds: int,
         claims["scope"] = scope
     if incident_id is not None:
         claims["incident_id"] = incident_id
+    if request_id is not None:
+        claims["request_id"] = request_id
     return claims
 
 
@@ -94,9 +98,18 @@ def verify_user_token(request: Request) -> dict[str, Any]:
 
 
 def sign_internal_grant(*, scope: str, user: dict[str, Any] | None = None,
-                        incident_id: int | None = None) -> str:
+                        incident_id: int | None = None,
+                        audience: str = INCIDENT_AUDIENCE,
+                        request_id: str | None = None) -> str:
+    if audience not in (INCIDENT_AUDIENCE, REPORT_AUDIENCE):
+        raise ValueError("Unsupported internal service audience")
+    if audience == REPORT_AUDIENCE and scope != "report:generate":
+        raise ValueError("Report service only accepts report job grants")
+    if request_id is not None and (not isinstance(request_id, str) or len(request_id) != 32
+                                   or any(c not in "0123456789abcdef" for c in request_id)):
+        raise ValueError("Invalid request correlation ID")
     if user is None:
-        if scope != "auth:verify":
+        if audience != INCIDENT_AUDIENCE or scope != "auth:verify":
             raise ValueError("Only auth verification has a service-only grant")
         subject, role = "gateway-service", "service"
     else:
@@ -109,7 +122,8 @@ def sign_internal_grant(*, scope: str, user: dict[str, Any] | None = None,
         raise ValueError("Invalid incident resource")
     private, _ = _keys()
     return jwt.encode(
-        _claims(sub=str(subject), role=role, audience=INCIDENT_AUDIENCE,
-                ttl_seconds=GRANT_TTL_SECONDS, scope=scope, incident_id=incident_id),
+        _claims(sub=str(subject), role=role, audience=audience,
+                ttl_seconds=GRANT_TTL_SECONDS, scope=scope, incident_id=incident_id,
+                request_id=request_id),
         private, algorithm="RS256",
     )

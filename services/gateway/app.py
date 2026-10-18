@@ -8,13 +8,14 @@ import os
 import json
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from .models import Credentials, IncidentAssign, IncidentCreate, IncidentStatus, IncidentUpdate
-from .security import (USER_TTL_SECONDS, check_keys, sign_internal_grant,
+from .models import Credentials, IncidentAssign, IncidentCreate, IncidentStatus, IncidentUpdate, ReportGenerate
+from .security import (USER_TTL_SECONDS, REPORT_AUDIENCE, check_keys, sign_internal_grant,
                        sign_user_token, verify_user_token)
 
 
@@ -140,6 +141,53 @@ async def reassign_incident(incident_id: int, body: IncidentAssign, request: Req
         request, "PATCH", f"/internal/incidents/{incident_id}/assign", user=user,
         scope="incident:assign", incident_id=incident_id, body=body.model_dump(),
     )
+
+
+@app.post("/incidents/{incident_id}/reports", status_code=201)
+async def generate_report(incident_id: int, request: Request,
+                          body: ReportGenerate | None = None,
+                          user: dict = Depends(verify_user_token)):
+    """Create one case-specific report through the third service.
+
+    Gateway alone signs all grants; no client-provided actor, scope or
+    report-service destination is accepted. A single request_id binds the
+    three grants into one job, and the Report Service validates that binding.
+    """
+    if incident_id < 1:
+        raise HTTPException(status_code=422, detail="Invalid incident ID")
+    job_id = uuid4().hex
+    job_token = sign_internal_grant(
+        scope="report:generate", user=user, incident_id=incident_id,
+        audience=REPORT_AUDIENCE, request_id=job_id,
+    )
+    read_grant = sign_internal_grant(
+        scope="incident:read", user=user, incident_id=incident_id, request_id=job_id,
+    )
+    write_grant = sign_internal_grant(
+        scope="report:create", user=user, incident_id=incident_id, request_id=job_id,
+    )
+    payload = {"incident_id": incident_id, "read_grant": read_grant,
+               "write_grant": write_grant}
+    if body is not None and body.filename is not None:
+        payload["filename"] = body.filename
+    transport = getattr(request.app.state, "report_transport", None)
+    base_url = os.environ.get("REPORT_SERVICE_URL", "http://127.0.0.1:8002").rstrip("/")
+    try:
+        async with httpx.AsyncClient(base_url=base_url, transport=transport,
+                                     timeout=10.0, follow_redirects=False) as client:
+            response = await client.post(
+                "/internal/generate", json=payload,
+                headers={"Authorization": f"Bearer {job_token}"},
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail="Report Service unavailable") from exc
+    if response.status_code >= 500 or response.status_code < 200 or 300 <= response.status_code < 400:
+        raise HTTPException(status_code=502, detail="Report Service error")
+    try:
+        content = response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Invalid Report Service response") from exc
+    return JSONResponse(status_code=response.status_code, content=content)
 
 
 @app.get("/incidents/{incident_id}/reports/{report_id}")

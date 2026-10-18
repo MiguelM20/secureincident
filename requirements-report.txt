@@ -1,0 +1,8 @@
+# Run from the SecureIncident repository root. The formatter is a distinct,
+# installable local package, not copied into the Report Service source tree.
+fastapi==0.128.2
+uvicorn==0.48.0
+PyJWT[crypto]==2.13.0
+httpx==0.28.1
+pytest==9.0.2
+./packages/incident_formatter
