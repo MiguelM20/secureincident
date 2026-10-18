@@ -1,0 +1,23 @@
+sequenceDiagram
+    actor User as Alice (analyst)
+    participant GW as Gateway
+    participant RS as Report Service
+    participant IS as Incident Service
+    participant DB as SQLite
+    User->>GW: POST /incidents/101/reports (user JWT)
+    GW->>GW: Verify user JWT and issue scoped grants
+    GW->>RS: POST /internal/generate (report job + case grants)
+    RS->>RS: Verify job and matching case grants
+    RS->>IS: GET /internal/incidents/101 (case-101 read grant)
+    IS->>IS: Verify signature, scope, audience and identity
+    IS->>DB: Load incident 101 and owner
+    DB-->>IS: owner = Alice
+    IS-->>RS: Authorized incident data
+    RS->>RS: Format via installed helper package
+    RS->>IS: POST /internal/incidents/101/reports (case-101 report:create grant)
+    IS->>DB: Recheck owner and persist report
+    DB-->>IS: report 501
+    IS-->>RS: report 501
+    RS-->>GW: Authorized report summary and content
+    GW-->>User: 201 report 501
+    Note over User,DB: If incident 102 belongs to Bob, Incident Service denies at owner check

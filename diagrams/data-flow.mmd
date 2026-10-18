@@ -1,0 +1,17 @@
+flowchart TD
+    U["Alice / Bob / Admin (untrusted client)"]
+    G["Gateway process - FastAPI<br/>login, JWT signer, user request orchestration"]
+    I["Incident Service process - FastAPI<br/>policy enforcement, incident/report records"]
+    R["Report Service process - FastAPI<br/>report jobs, no DB access"]
+    D[("SQLite<br/>Incident Service private storage")]
+    H["incident_formatter<br/>installed Python wheel"]
+    F[("Restricted temporary report directory")]
+    U <-->|"TB1: user JWT, HTTPS in production"| G
+    G <-->|"TB2: scoped incident JWT + HTTP"| I
+    G <-->|"TB3: report job JWT + HTTP"| R
+    R <-->|"TB4: original-user/case-scoped JWT + HTTP"| I
+    I <-->|"TB6: parameterized SQL"| D
+    R -->|"TB5: package call"| H
+    R -->|"TB5: validated output path"| F
+    classDef zone fill:#eef4ff,stroke:#4d70b4,color:#173360
+    class G,I,R zone
