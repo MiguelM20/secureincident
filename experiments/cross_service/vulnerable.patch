@@ -1,0 +1,24 @@
+--- a/services/gateway/app.py
++++ b/services/gateway/app.py
+@@ -156,15 +156,18 @@
+     if incident_id < 1:
+         raise HTTPException(status_code=422, detail="Invalid incident ID")
+     job_id = uuid4().hex
++    # VULNERABLE EXPERIMENT: mistakenly run all report jobs as the seeded admin.
++    # An ordinary analyst now receives the result of an administrator-authorized job.
++    report_actor = {"sub": "3", "role": "admin"}
+     job_token = sign_internal_grant(
+-        scope="report:generate", user=user, incident_id=incident_id,
++        scope="report:generate", user=report_actor, incident_id=incident_id,
+         audience=REPORT_AUDIENCE, request_id=job_id,
+     )
+     read_grant = sign_internal_grant(
+-        scope="incident:read", user=user, incident_id=incident_id, request_id=job_id,
++        scope="incident:read", user=report_actor, incident_id=incident_id, request_id=job_id,
+     )
+     write_grant = sign_internal_grant(
+-        scope="report:create", user=user, incident_id=incident_id, request_id=job_id,
++        scope="report:create", user=report_actor, incident_id=incident_id, request_id=job_id,
+     )
+     payload = {"incident_id": incident_id, "read_grant": read_grant,
+                "write_grant": write_grant}
