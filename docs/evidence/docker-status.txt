@@ -1,0 +1,4 @@
+NAME                                   IMAGE                                COMMAND                  SERVICE            CREATED          STATUS                    PORTS
+secureincident-ci-gateway-1            secureincident-ci-gateway            "python -m uvicorn s…"   gateway            17 seconds ago   Up 6 seconds (healthy)    127.0.0.1:18080->8000/tcp
+secureincident-ci-incident-service-1   secureincident-ci-incident-service   "python -m uvicorn s…"   incident-service   17 seconds ago   Up 17 seconds (healthy)   8001/tcp
+secureincident-ci-report-service-1     secureincident-ci-report-service     "python -m uvicorn s…"   report-service     17 seconds ago   Up 11 seconds (healthy)   8002/tcp

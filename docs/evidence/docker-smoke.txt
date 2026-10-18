@@ -1,0 +1,7 @@
+Own incident readable: HTTP 200 (expected 200)
+Other user's incident denied: HTTP 404 (expected 404)
+Admin action denied: HTTP 403 (expected 403)
+Generate own report: HTTP 201 (expected 201)
+Unsafe report filename denied: HTTP 422 (expected 422)
+Read saved report: HTTP 200 (expected 200)
+Docker integration security gate PASSED
