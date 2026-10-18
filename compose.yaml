@@ -81,10 +81,9 @@ services:
       SECUREINCIDENT_PUBLIC_KEY_PATH: /run/secureincident/public/gateway-public.pem
     volumes:
       - gateway_private_keys:/run/secureincident/private
-      # Gateway owns the public-key trust root and initializes it once.
       - public_keys:/run/secureincident/public
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${SECUREINCIDENT_PORT:-8000}:8000"
     networks:
       - edge
       - backend
