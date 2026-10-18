@@ -1,0 +1,7 @@
+# Tested with Python 3.12. Exact versions keep local installations reproducible.
+fastapi==0.128.2
+uvicorn==0.48.0
+PyJWT[crypto]==2.13.0
+argon2-cffi==25.1.0
+httpx==0.28.1
+pytest==9.0.2

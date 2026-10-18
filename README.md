@@ -1,6 +1,6 @@
-# SecureIncident - Assignment 1 design pack
+# SecureIncident - Software Security Assignment I
 
-Status: **DESIGN ONLY. No application code has been implemented.** Initial SSDLC plan is committed as the first Git revision.
+Status: **Phase 2 in progress.** Incident Service implemented and covered by isolated security tests. Gateway, Report Service, formatter dependency, Docker Compose, and Jenkins are still pending. The initial SSDLC design remains the first Git commit.
 
 This pack records the agreed baseline for the Python Security Incident Management System before implementation. Read in order:
 
@@ -26,4 +26,4 @@ This pack records the agreed baseline for the Python Security Incident Managemen
 
 The initial SSDLC plan and architecture **are the first commit** of this repository, preceding application code. Do not reinitialize Git. For extraction, history checks, and publishing instructions, see `docs/00-getting-started.md`.
 
-Later, implement the three services and Jenkinsfile. Preserve evidence of vulnerable and corrected states with separate commits/tags. This package is not yet a submission-ready implementation.
+The first service and its tests are documented in `services/incident_service/README.md`. Preserve evidence of vulnerable and corrected states with separate commits/tags. This repository is not yet a submission-ready implementation.
