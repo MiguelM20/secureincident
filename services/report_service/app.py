@@ -37,7 +37,10 @@ def _reports_root() -> Path:
 def _validated_filename(requested: str | None) -> str:
     if requested is None:
         return f"incident-report-{uuid4().hex}.txt"
-    # DELIBERATE CWE-22 FIXTURE: accepts paths outside the report directory.
+    # Only a single .txt file basename. Reject ../, absolute paths, separators
+    # and hidden files. This is the permanent CWE-22 regression control.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,75}\.txt", requested, flags=re.ASCII):
+        raise HTTPException(status_code=422, detail="Invalid report filename")
     return requested
 
 
@@ -93,8 +96,9 @@ async def generate_report(job: ReportJob, request: Request):
     # Prefix with unique ID even when the user supplies a safe filename.
     root = _reports_root()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # DELIBERATE CWE-22 FIXTURE: untrusted filename controls resolved path.
-    path = (root / filename).resolve()
+    path = (root / (uuid4().hex + "-" + filename)).resolve()
+    if not path.is_relative_to(root):
+        raise HTTPException(status_code=422, detail="Report filename escapes work directory")
     try:
         with path.open("x", encoding="utf-8") as handle:
             handle.write(content)
