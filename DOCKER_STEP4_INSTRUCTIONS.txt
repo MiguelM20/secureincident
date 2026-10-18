@@ -1,0 +1,31 @@
+SecureIncident Docker Compose patch (Phase 2, Step 4)
+====================================================
+
+Unzip these files into the ROOT of your existing SecureIncident Git repository.
+They do not contain a .git directory, database, PEM key, or user password.
+
+Changes:
+  compose.yaml
+  .dockerignore
+  docker/incident.Dockerfile
+  docker/gateway.Dockerfile
+  docker/report.Dockerfile
+  scripts/docker_init_keys.py
+  tests/test_docker_deployment.py
+  docs/07-docker-compose.md
+
+Existing application code, Git history, and local runtime data are untouched.
+
+Open docs/07-docker-compose.md for first-time setup and commands.
+Important: stop your previously running Gateway at 127.0.0.1:8000 first.
+
+Prerequisite: Docker Desktop installed and running on your Mac.
+
+First commands after unzip:
+
+  docker compose version
+  docker compose config -q
+  docker compose build
+
+The additional one-time Docker key + data initialization commands are explained
+in docs/07-docker-compose.md.

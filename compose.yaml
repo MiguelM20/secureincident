@@ -1,0 +1,103 @@
+# SecureIncident local Docker demonstration. Do not expose this deployment publicly.
+# The Gateway alone holds the RS256 private signing key. Incident/Report receive
+# only the public verification key and have no host-published ports.
+name: secureincident
+
+x-service-hardening: &service-hardening
+  read_only: true
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 100
+  mem_limit: 256m
+  restart: unless-stopped
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=32m,mode=1777
+
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 15
+  start_period: 10s
+
+services:
+  incident-service:
+    <<: *service-hardening
+    build:
+      context: .
+      dockerfile: docker/incident.Dockerfile
+    environment:
+      INCIDENT_DB_PATH: /var/lib/secureincident/incident.db
+      SECUREINCIDENT_PUBLIC_KEY_PATH: /run/secureincident/public/gateway-public.pem
+    volumes:
+      - incident_data:/var/lib/secureincident
+      - public_keys:/run/secureincident/public:ro
+    expose:
+      - "8001"
+    networks:
+      - backend
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2).read()"]
+
+  report-service:
+    <<: *service-hardening
+    build:
+      context: .
+      dockerfile: docker/report.Dockerfile
+    depends_on:
+      incident-service:
+        condition: service_healthy
+    environment:
+      INCIDENT_SERVICE_URL: http://incident-service:8001
+      SECUREINCIDENT_PUBLIC_KEY_PATH: /run/secureincident/public/gateway-public.pem
+      REPORT_WORKDIR: /tmp/secureincident-reports
+    volumes:
+      - public_keys:/run/secureincident/public:ro
+    expose:
+      - "8002"
+    networks:
+      - backend
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=2).read()"]
+
+  gateway:
+    <<: *service-hardening
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    depends_on:
+      incident-service:
+        condition: service_healthy
+      report-service:
+        condition: service_healthy
+    environment:
+      INCIDENT_SERVICE_URL: http://incident-service:8001
+      REPORT_SERVICE_URL: http://report-service:8002
+      SECUREINCIDENT_PRIVATE_KEY_PATH: /run/secureincident/private/gateway-private.pem
+      SECUREINCIDENT_PUBLIC_KEY_PATH: /run/secureincident/public/gateway-public.pem
+    volumes:
+      - gateway_private_keys:/run/secureincident/private
+      # Gateway owns the public-key trust root and initializes it once.
+      - public_keys:/run/secureincident/public
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - edge
+      - backend
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"]
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+
+volumes:
+  incident_data: {}
+  public_keys: {}
+  gateway_private_keys: {}
