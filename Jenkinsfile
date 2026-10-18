@@ -1,104 +1,130 @@
-// SecureIncident local Jenkins multibranch pipeline.
-// Run Jenkins as your macOS user so it can reach Docker Desktop.
+// SecureIncident educational CI on macOS (Homebrew Jenkins + Docker Desktop).
+// Only run this pipeline for trusted repository branches and pull requests.
 pipeline {
     agent any
+
     options {
         timestamps()
-        skipDefaultCheckout(true)
         disableConcurrentBuilds()
-        timeout(time: 40, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
+        skipDefaultCheckout(true)
     }
+
     environment {
-        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.HOME}/.docker/bin:${env.PATH}"
+        // Do not use the default Compose project: preserve any local demonstration data.
+        COMPOSE_PROJECT_NAME = 'secureincident-ci'
+        SECUREINCIDENT_PORT = '18080'
     }
+
     stages {
-        stage('Checkout and manifest validation') {
+        stage('Checkout') {
             steps {
                 checkout scm
-                sh '''#!/bin/bash
-set -euo pipefail
-rm -rf artifacts .jenkins-venv
-mkdir -p artifacts
-python3.12 --version
-docker compose version
-python3.12 ci/verify_manifests.py | tee artifacts/manifest-check.txt
-'''
+                sh 'mkdir -p artifacts'
             }
         }
-        stage('Build and install') {
-            steps {
-                sh '''#!/bin/bash
-set -euo pipefail
-python3.12 -m venv .jenkins-venv
-. .jenkins-venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install --no-input -r requirements-incident.txt -r requirements-gateway.txt -r requirements-report.txt bandit pip-audit build
-python -m pip check | tee artifacts/pip-check.txt
-python -m pip wheel --no-deps ./packages/incident_formatter -w artifacts/wheels
-python -m pip freeze --all > artifacts/resolved-packages.txt
-'''
-            }
-        }
-        stage('Security analysis') {
-            steps {
-                sh '''#!/bin/bash
-set -euo pipefail
-. .jenkins-venv/bin/activate
-# Any HIGH severity, HIGH confidence Bandit finding fails this stage.
-python -m bandit -r services -lll -iii -f json -o artifacts/bandit.json
-# Any known vulnerable installed dependency fails this stage.
-python -m pip_audit --local --format json --output artifacts/pip-audit.json
-'''
-            }
-        }
-        stage('Functional and security tests') {
-            steps {
-                sh '''#!/bin/bash
-set -euo pipefail
-. .jenkins-venv/bin/activate
-python -m pytest tests -q --junitxml=artifacts/junit.xml 2>&1 | tee artifacts/pytest.txt
-'''
-            }
-        }
-        stage('Fresh Docker Compose integration') {
-            steps {
-                sh '''#!/bin/bash
-set -euo pipefail
-# Unique project name means no overlap with your personal Docker database/keys.
-CI_PROJECT="sicci${BUILD_NUMBER}"
-# Dynamic loopback host port means no collision with the usual :8000 demo.
-SECUREINCIDENT_PORT="$((20000 + BUILD_NUMBER % 20000))"
-export SECUREINCIDENT_PORT
-cleanup() {
-    docker compose -p "$CI_PROJECT" logs --no-color > artifacts/docker-logs.txt 2>&1 || true
-    docker compose -p "$CI_PROJECT" down -v --remove-orphans > artifacts/docker-cleanup.txt 2>&1 || true
-}
-trap cleanup EXIT
-# No secrets in source or persisted CI artifacts.
-set +x
-SEED_ALICE_PASSWORD="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(24))')"
-SEED_BOB_PASSWORD="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(24))')"
-SEED_ADMIN_PASSWORD="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(24))')"
-export SEED_ALICE_PASSWORD SEED_BOB_PASSWORD SEED_ADMIN_PASSWORD
 
-docker compose -p "$CI_PROJECT" config -q
-docker compose -p "$CI_PROJECT" build > artifacts/docker-build.txt 2>&1
-docker compose -p "$CI_PROJECT" run --rm --no-deps gateway python -m scripts.docker_init_keys > artifacts/docker-init.txt 2>&1
-docker compose -p "$CI_PROJECT" run --rm --no-deps \
+        stage('Build and validate dependencies') {
+            steps {
+                sh '''#!/bin/bash
+set -euo pipefail
+export PATH="$HOME/.docker/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# Reject any unlisted direct requirement or unpinned direct PyPI dependency.
+python3.12 - <<'PY'
+from pathlib import Path
+import re
+files = ('requirements-gateway.txt', 'requirements-incident.txt', 'requirements-report.txt')
+pattern = re.compile(r'^[A-Za-z0-9_.-]+(?:\\[[A-Za-z0-9_,.-]+\\])?==[0-9][A-Za-z0-9.+-]*$')
+for filename in files:
+    for raw in Path(filename).read_text().splitlines():
+        entry = raw.strip()
+        if not entry or entry.startswith('#'):
+            continue
+        if filename == 'requirements-report.txt' and entry == './packages/incident_formatter':
+            continue
+        if not pattern.fullmatch(entry):
+            raise SystemExit(f'Unapproved or unpinned direct dependency in {filename}: {entry}')
+print('Direct dependency manifests validated')
+PY
+
+python3.12 -m venv .ci-venv
+source .ci-venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-incident.txt -r requirements-gateway.txt -r requirements-report.txt
+python -m pip install bandit pip-audit build
+python -m pip check
+python -m compileall -q services scripts packages/incident_formatter/src
+python -m build --wheel --outdir artifacts/wheels packages/incident_formatter
+python -m pip freeze > artifacts/installed-dependencies.txt
+'''
+            }
+        }
+
+        stage('Static and dependency analysis') {
+            steps {
+                sh '''#!/bin/bash
+set -euo pipefail
+source .ci-venv/bin/activate
+# Release gate: high-severity, high-confidence Bandit findings are blocking.
+bandit -r services scripts packages/incident_formatter/src -lll -iii -f json -o artifacts/bandit.json
+# Release gate: any known advisory in the installed environment is blocking.
+pip-audit --local --format json --output artifacts/pip-audit.json
+'''
+            }
+        }
+
+        stage('Python functional and authorization tests') {
+            steps {
+                sh '''#!/bin/bash
+set -euo pipefail
+source .ci-venv/bin/activate
+python -m pytest tests/ -q --junitxml=artifacts/pytest-results.xml | tee artifacts/pytest-console.txt
+'''
+            }
+        }
+
+        stage('Fresh Docker integration test') {
+            steps {
+                sh '''#!/bin/bash
+set -euo pipefail
+export PATH="$HOME/.docker/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+source .ci-venv/bin/activate
+# These credentials exist only for the disposable CI Compose project.
+export SEED_ALICE_PASSWORD="$(openssl rand -hex 18)"
+export SEED_BOB_PASSWORD="$(openssl rand -hex 18)"
+export SEED_ADMIN_PASSWORD="$(openssl rand -hex 18)"
+export SECUREINCIDENT_SMOKE_PASSWORD="$SEED_ALICE_PASSWORD"
+export SECUREINCIDENT_SMOKE_URL="http://127.0.0.1:${SECUREINCIDENT_PORT}"
+
+docker info >/dev/null
+docker compose -p "$COMPOSE_PROJECT_NAME" config -q
+docker compose -p "$COMPOSE_PROJECT_NAME" build
+docker compose -p "$COMPOSE_PROJECT_NAME" run --rm --no-deps gateway python -m scripts.docker_init_keys
+docker compose -p "$COMPOSE_PROJECT_NAME" run --rm --no-deps \
     -e SEED_ALICE_PASSWORD -e SEED_BOB_PASSWORD -e SEED_ADMIN_PASSWORD \
-    incident-service python -m services.incident_service.seed >> artifacts/docker-init.txt 2>&1
-docker compose -p "$CI_PROJECT" up -d --no-build --wait --wait-timeout 120 > artifacts/docker-up.txt 2>&1
-docker compose -p "$CI_PROJECT" ps > artifacts/docker-ps.txt
-SECUREINCIDENT_BASE_URL="http://127.0.0.1:${SECUREINCIDENT_PORT}" \
-    .jenkins-venv/bin/python ci/smoke.py > artifacts/docker-smoke.txt 2>&1
+    incident-service python -m services.incident_service.seed
+docker compose -p "$COMPOSE_PROJECT_NAME" up -d --no-build --wait
+python scripts/ci_smoke.py | tee artifacts/docker-smoke.txt
+docker compose -p "$COMPOSE_PROJECT_NAME" ps > artifacts/docker-status.txt
 '''
             }
         }
     }
+
     post {
         always {
-            junit testResults: 'artifacts/junit.xml', allowEmptyResults: true
-            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true, fingerprint: true
+            // Always tear down this dedicated disposable CI environment only.
+            sh '''#!/bin/bash
+set +e
+export PATH="$HOME/.docker/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+mkdir -p artifacts
+docker compose -p secureincident-ci logs --no-color > artifacts/docker-logs.txt 2>&1
+docker compose -p secureincident-ci down -v --remove-orphans
+exit 0
+'''
+            junit allowEmptyResults: true, testResults: 'artifacts/pytest-results.xml'
+            archiveArtifacts allowEmptyArchive: true, artifacts: 'artifacts/**'
         }
     }
 }
